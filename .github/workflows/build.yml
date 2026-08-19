@@ -1,0 +1,61 @@
+name: Build Stellarium Web Engine
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone stellarium-web-engine (pinned)
+        run: |
+          git clone https://github.com/Stellarium/stellarium-web-engine.git engine
+          cd engine
+          git checkout 5403e930416f6dc1dbcca08486a045dd8be67f53
+
+      - name: Compile WASM engine with emscripten
+        run: |
+          # Fix stale Debian apt sources for the old emsdk image
+          docker run --rm -v "$PWD/engine:/app" emscripten/emsdk:1.39.17 /bin/bash -c "
+            set -e
+            # switch to archive.debian.org if the old mirrors are gone
+            sed -i 's/deb.debian.org/archive.debian.org/g; s/security.debian.org/archive.debian.org/g; s|/bullseye|/buster|g' /etc/apt/sources.list 2>/dev/null || true
+            apt-get update || true
+            apt-get install -y --no-install-recommends scons make wget build-essential apt-transport-https || true
+            source /emsdk/emsdk_env.sh
+            cd /app && make js-es6
+          "
+
+      - name: Copy engine artifacts into frontend
+        run: |
+          cd engine
+          mkdir -p apps/web-frontend/src/assets/js
+          cp build/stellarium-web-engine.js apps/web-frontend/src/assets/js/
+          cp build/stellarium-web-engine.wasm apps/web-frontend/src/assets/js/
+          # astronomy data: test-skydata is a small copy of the real skydata
+          cp -r apps/test-skydata apps/skydata
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '12'
+
+      - name: Build Vue frontend
+        run: |
+          cd engine/apps/web-frontend
+          yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
+          yarn run build
+
+      - name: Upload static site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellarium-dist
+          path: engine/apps/web-frontend/dist
+          if-no-files-found: error
