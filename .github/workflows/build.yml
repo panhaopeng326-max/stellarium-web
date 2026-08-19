@@ -50,7 +50,9 @@ jobs:
       - name: Build Vue frontend
         run: |
           cd engine/apps/web-frontend
-          yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
+          # Fix Vue 2/3 mismatch: force vue 2.6.x to match vue-template-compiler 2.6.12
+          sed -i 's/"vue": "^3.0.0"/"vue": "^2.6.11"/' package.json
+          yarn install --ignore-engines --network-timeout 600000
           yarn run build
 
       - name: Upload static site artifact
